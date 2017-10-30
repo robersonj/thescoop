@@ -1,3 +1,11 @@
+var inputfile = 'database.yml',
+  outputfile = 'database.json',
+  yaml = require('js-yaml'),
+  fs = require('fs'),
+obj = yaml.load(fs.readFileSync(inputfile, {encoding: 'utf-8'}));
+  // this code if you want to save
+fs.writeFileSync(outputfile, JSON.stringify(obj, null, 2));
+
 // database is let instead of const to allow us to modify it in test.js
 let database = {
   users: {},
@@ -33,9 +41,15 @@ const routes = {
     'POST': createComment
   },
   '/comments/:id': {
+    'PUT': updateComment,
+    'DELETE': deleteComment
   },
-  '/comments/:id/upvote': {},
-  '/comments/:id/downvote': {}
+  '/comments/:id/upvote': {
+    'PUT': upvoteComment
+  },
+  '/comments/:id/downvote': {
+    'PUT': downvoteComment
+  }
 
 };
 
@@ -230,19 +244,21 @@ function downvoteArticle(url, request) {
   return response;
 }
 
-function createComment(request) {
-    const username = request.body && request.body.users;
+function createComment(url, request) {
+    const requestComment = request.body && request.body.comment;
     const response = {};
 
-    if ( database.users[username] ) {
+    if (requestComment && requestComment.body && requestComment.username && database.users[requestComment.username] 
+        && requestComment.articleId && database.articles[requestComment.articleId]) {
+
       const comment = {
         id: database.nextCommentId++,
-        body: 'Comment Body',
-        username: 'existing_user',
-        articleId: 1,
+        body: requestComment.body,
+        username: requestComment.username,
+        articleId: requestComment.articleId,
         upvotedBy: [],
         downvotedBy: []
-      } 
+      }
 
       database.comments[comment.id] = comment;
       database.users[comment.username].commentIds.push(comment.id);
@@ -255,6 +271,89 @@ function createComment(request) {
     }
   return response;
 }
+
+function updateComment(url, request) {
+  const id = Number(url.split('/').filter(segment => segment)[1]);
+  const savedComment = database.comments[id];
+  const requestComment = request.body && request.body.comment;
+  const response = {};
+
+  if (!id || !requestComment) {
+    response.status = 400;
+  } else if (!savedComment) {
+    response.status = 404;
+  } else {
+    savedComment.body = requestComment.body || savedComment.body;
+
+    response.body = {comment: savedComment};
+    response.status = 200;
+  }
+  return response;
+}
+
+function deleteComment(url, request) {
+  const id = Number(url.split('/').filter(segment => segment)[1]);
+  const savedComment = database.comments[id];
+
+  const response = {};
+
+  if (savedComment) {
+    // Delete existing comment
+    database.comments[id] = null;
+    // Delete comment ID from author's comment IDs
+    const userCommentIds = database.users[savedComment.username].commentIds;
+    userCommentIds.splice(userCommentIds.indexOf(id), 1);
+    // Delete comment ID from article's comment IDs
+    const savedArticle = database.articles[savedComment.articleId];
+    const articleCommentIds = savedArticle.commentIds;
+    articleCommentIds.splice(articleCommentIds.indexOf(id), 1);
+    // Return 204 response after successful delete
+    response.status = 204;
+  } else {
+    // Return 404 response with non-existent comment ID
+    response.status = 404;
+  }
+
+  return response;
+}
+
+function upvoteComment(url, request) {
+  const id = Number(url.split('/').filter(segment => segment)[1]);
+  const username = request.body && request.body.username;
+  let savedComment = database.comments[id];
+  const response = {};
+
+  if (savedComment && database.users[username]) {
+    savedComment = upvote(savedComment, username);
+
+    response.body = {comment: savedComment};
+    response.status = 200;
+  } else {
+    response.status = 400;
+  }
+
+ return response;
+}
+
+function downvoteComment(url, request) {
+  const id = Number(url.split('/').filter(segment => segment)[1]);
+  const username = request.body && request.body.username;
+  let savedComment = database.comments[id];
+  const response = {};
+
+  if (savedComment && database.users[username]) {
+    savedComment = downvote(savedComment, username);
+
+    response.body = {comment: savedComment};
+    response.status = 200;
+  } else {
+    response.status = 400;
+  }
+
+  return response;
+}
+
+
 
 function upvote(item, username) {
   if (item.downvotedBy.includes(username)) {
@@ -275,6 +374,8 @@ function downvote(item, username) {
   }
   return item;
 }
+
+
 
 // Write all code above this line.
 
